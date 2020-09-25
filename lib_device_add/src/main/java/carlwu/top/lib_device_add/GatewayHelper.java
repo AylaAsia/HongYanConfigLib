@@ -35,6 +35,8 @@ import java.util.TimerTask;
 import carlwu.top.lib_device_add.exceptions.AlreadyBoundException;
 
 public interface GatewayHelper {
+    public static final String TAG = "GatewayHelper";
+
     public static class DiscoverHelper {
         Application application;
         DiscoverCallback callback;
@@ -69,7 +71,6 @@ public interface GatewayHelper {
     }
 
     public static class BindHelper {
-        private static final String TAG = "BindHelper";
         private Timer runTimer;
         private TimerTask timeoutTimerTask;
 
@@ -89,6 +90,7 @@ public interface GatewayHelper {
 
         /**
          * 开始网关绑定
+         *
          * @param authCode    授权码
          * @param productKey  鸿雁体系的productKey
          * @param deviceName  鸿雁体系的deviceName
