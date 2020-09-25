@@ -2,7 +2,6 @@ apply plugin: 'com.android.library'
 
 //jitpack配置
 apply plugin: 'com.github.dcendents.android-maven'
-group='com.github.YourUsername'
 
 apply from: 'dependency.gradle'
 

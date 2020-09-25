@@ -32,7 +32,9 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
-public final class GatewayHelper {
+import carlwu.top.lib_device_add.exceptions.AlreadyBoundException;
+
+public interface GatewayHelper {
     public static class DiscoverHelper {
         Application application;
         DiscoverCallback callback;
@@ -86,9 +88,10 @@ public final class GatewayHelper {
         private String deviceToken;
 
         /**
-         * @param authCode
-         * @param productKey
-         * @param deviceName  鸿雁体系的设备名称
+         * 开始网关绑定
+         * @param authCode    授权码
+         * @param productKey  鸿雁体系的productKey
+         * @param deviceName  鸿雁体系的deviceName
          * @param time_second
          */
         public void startBind(final String authCode, final String productKey, final String deviceName, int time_second) {
@@ -125,6 +128,9 @@ public final class GatewayHelper {
             });
         }
 
+        /**
+         * 结束网关绑定
+         */
         public void stopBind() {
             status = false;
             application = null;
@@ -195,9 +201,8 @@ public final class GatewayHelper {
                     Log.d(TAG, "bind onResponse:" + ioTResponse.getCode() + " data:" + ioTResponse.getData());
                     final int code = ioTResponse.getCode();
                     if (code == 200) {
-                        JSONObject data = (JSONObject) ioTResponse.getData();
                         try {
-                            String iotId = (String) data.get("iotId");
+                            String iotId = ((JSONObject) ioTResponse.getData()).getString("iotId");
                             if (callback != null) {
                                 callback.onBindSuccess(iotId);
                             }
@@ -207,7 +212,7 @@ public final class GatewayHelper {
                         }
                     } else {
                         if (code == 2064) {//已被绑定错误
-                            handleFailure(new AlreadyBoundException());
+                            handleFailure(new AlreadyBoundException(ioTResponse.getLocalizedMsg()));
                         } else {
                             handleFailure(new Exception("绑定阶段失败,code=" + ioTResponse.getCode() + " data:" + ioTResponse.getData()));
                         }
@@ -225,11 +230,5 @@ public final class GatewayHelper {
         void onFailure(Exception e);
 
         void onBindSuccess(String iotId);
-    }
-
-    /**
-     * 设备已被绑定异常
-     */
-    public static class AlreadyBoundException extends Exception {
     }
 }

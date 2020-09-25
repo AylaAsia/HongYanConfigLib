@@ -10,7 +10,6 @@ import com.aliyun.iot.aep.sdk.apiclient.callback.IoTCallback;
 import com.aliyun.iot.aep.sdk.apiclient.callback.IoTResponse;
 import com.aliyun.iot.aep.sdk.apiclient.request.IoTRequest;
 import com.aliyun.iot.aep.sdk.apiclient.request.IoTRequestBuilder;
-import com.aliyun.iot.aep.sdk.framework.AApplication;
 import com.aliyun.iot.aep.sdk.login.ILoginCallback;
 import com.aliyun.iot.aep.sdk.login.LoginBusiness;
 
@@ -19,6 +18,8 @@ import org.json.JSONObject;
 
 import java.util.Timer;
 import java.util.TimerTask;
+
+import carlwu.top.lib_device_add.exceptions.AlreadyBoundException;
 
 public class NodeHelper {
     private BindCallback bindCallback;
@@ -44,10 +45,12 @@ public class NodeHelper {
     private String SubNode_ProductKey;
 
     /**
+     * 开始节点绑定
+     * @param authCode           授权码
      * @param Gateway_IotId      网关设备iotId
      * @param SubNode_ProductKey 允许接入网关的子设备产品标识符
      */
-    public void start(final String authCode, String Gateway_IotId, String SubNode_ProductKey, int time_second) {
+    public void startBind(final String authCode, String Gateway_IotId, String SubNode_ProductKey, int time_second) {
         Log.d(TAG, "start: ");
         status = true;
         this.authCode = authCode;
@@ -66,7 +69,10 @@ public class NodeHelper {
         authCodeLogin();
     }
 
-    public void stop() {
+    /**
+     * 结束节点绑定
+     */
+    public void stopBind() {
         Log.d(TAG, "stop: ");
         status = false;
         this.bindCallback = null;
@@ -129,12 +135,12 @@ public class NodeHelper {
 
             @Override
             public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
-                Log.d(TAG, "enableGatewayFind onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getMessage());
+                Log.d(TAG, "enableGatewayFind onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
                 final int code = ioTResponse.getCode();
                 if (code == 200) {
                     waitForSubDevice();
                 } else {
-                    handleFailure(new Exception("网关无法进入发现节点模式，code=" + code + " data=" + ioTResponse.getMessage()));
+                    handleFailure(new Exception("网关无法进入发现节点模式，code=" + code + " data=" + ioTResponse.getLocalizedMsg()));
                 }
             }
         });
@@ -211,8 +217,9 @@ public class NodeHelper {
             @Override
             public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
                 //{"iotId":"WYHTcXM8grKO9eahl1JA000000","categoryKey":"WallSwitch"}
-                Log.d(TAG, "bindSubDevice onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getMessage());
-                if (ioTResponse.getCode() == 200) {
+                Log.d(TAG, "bindSubDevice onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
+                final int code = ioTResponse.getCode();
+                if (code == 200) {
                     try {
                         String iotId = ((JSONObject) ioTResponse.getData()).getString("iotId");
                         if (bindCallback != null) {
@@ -222,7 +229,11 @@ public class NodeHelper {
                         e.printStackTrace();
                     }
                 } else {
-                    handleFailure(new Exception("绑定节点设备失败,code=" + ioTResponse.getCode() + " data=" + ioTResponse.getMessage()));
+                    if (code == 2064) {//已被绑定错误
+                        handleFailure(new AlreadyBoundException(ioTResponse.getLocalizedMsg()));
+                    } else {
+                        handleFailure(new Exception("绑定阶段失败,code=" + ioTResponse.getCode() + " data:" + ioTResponse.getData()));
+                    }
                 }
             }
         });
@@ -230,6 +241,6 @@ public class NodeHelper {
 
     private void handleFailure(Exception e) {
         bindCallback.onFailure(e);
-        stop();
+        stopBind();
     }
 }
