@@ -201,6 +201,9 @@ public interface GatewayHelper {
                 @Override
                 public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
                     Log.d(TAG, "bind onResponse:" + ioTResponse.getCode() + " data:" + ioTResponse.getData());
+                    if (!status) {
+                        return;
+                    }
                     final int code = ioTResponse.getCode();
                     if (code == 200) {
                         try {

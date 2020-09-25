@@ -18,8 +18,10 @@ import org.json.JSONObject;
 
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.Future;
 
 import carlwu.top.lib_device_add.exceptions.AlreadyBoundException;
+import carlwu.top.lib_device_add.exceptions.NeedUnbindFirstException;
 
 public class NodeHelper {
     private BindCallback bindCallback;
@@ -33,7 +35,21 @@ public class NodeHelper {
     }
 
     public interface BindCallback {
+        /**
+         * 调用层返回是否已经处理了解绑操作
+         *
+         * @param subIotId
+         * @param subProductKey
+         * @param subDeviceName
+         * @return true:已处理，正常跳过。
+         */
+        Future<Boolean> isUnbindRelation(String subIotId, String subProductKey, String subDeviceName);
 
+        /**
+         * 失败回调
+         * @param e
+         * NeedUnbindFirstException 绑定节点前，需要确保强制解除设备上所有绑定关系
+         */
         void onFailure(Exception e);
 
         void onSuccess(String iotId);
@@ -46,6 +62,7 @@ public class NodeHelper {
 
     /**
      * 开始节点绑定
+     *
      * @param authCode           授权码
      * @param Gateway_IotId      网关设备iotId
      * @param SubNode_ProductKey 允许接入网关的子设备产品标识符
@@ -156,20 +173,23 @@ public class NodeHelper {
             @Override
             public void onCommand(String s, String s1) {
                 Log.d(TAG, "onCommand: " + s + " " + s1);
+                if (!status) {
+                    return;
+                }
                 try {
-                    JSONObject jsonObject = new JSONObject(s1);
+                    final JSONObject jsonObject = new JSONObject(s1);
                     int status = jsonObject.optInt("status", -1);
                     final String subProductKey = jsonObject.getString("subProductKey");
                     final String subDeviceName = jsonObject.getString("subDeviceName");
+                    final String subIotId = jsonObject.getString("subIotId");
                     if (status == 0) {
-                        timeoutTimerTask.cancel();
                         MobileChannel.getInstance().unRegisterDownstreamListener(iMobileDownstreamListener);
                         runTimer.schedule(new TimerTask() {
                             @Override
                             public void run() {
-                                bindSubDevice(subProductKey, subDeviceName);
+                                unbindRelation(subIotId, subProductKey, subDeviceName);
                             }
-                        }, 5_000);//等待子设备恢复在线状态，避免6221错误，设备不在线。也可以尝试重试几次的方式
+                        }, 3_000);//等待子设备恢复在线状态，避免6221错误，设备不在线。也可以尝试重试几次的方式
                     }
                 } catch (JSONException e) {
                     e.printStackTrace();
@@ -187,6 +207,27 @@ public class NodeHelper {
         MobileChannel.getInstance().registerDownstreamListener(true, iMobileDownstreamListener);
     }
 
+    private void unbindRelation(String subIotId, String subProductKey, String subDeviceName) {
+        if (!status) {
+            return;
+        }
+        if (bindCallback != null) {
+            Future<Boolean> unbindRelation = bindCallback.isUnbindRelation(subIotId, subProductKey, subDeviceName);
+            try {
+                if (unbindRelation.get()) {
+                    bindSubDevice(subProductKey, subDeviceName);
+                } else {
+                    handleFailure(new NeedUnbindFirstException("需要确保强制解除设备上所有绑定关系"));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                handleFailure(e);
+            }
+        } else {
+            handleFailure(new Exception("BindCallback不能为空"));
+        }
+    }
+
     /**
      * 通知Ali绑定设备
      *
@@ -197,6 +238,7 @@ public class NodeHelper {
         if (!status) {
             return;
         }
+        timeoutTimerTask.cancel();
         IoTRequestBuilder builder = new IoTRequestBuilder()
                 .setPath("/awss/time/window/user/bind")
                 .setApiVersion("1.0.8")
@@ -216,8 +258,10 @@ public class NodeHelper {
 
             @Override
             public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
-                //{"iotId":"WYHTcXM8grKO9eahl1JA000000","categoryKey":"WallSwitch"}
                 Log.d(TAG, "bindSubDevice onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
+                if (!status) {
+                    return;
+                }
                 final int code = ioTResponse.getCode();
                 if (code == 200) {
                     try {
@@ -240,7 +284,9 @@ public class NodeHelper {
     }
 
     private void handleFailure(Exception e) {
-        bindCallback.onFailure(e);
+        if (bindCallback != null) {
+            bindCallback.onFailure(e);
+        }
         stopBind();
     }
 }
