@@ -37,18 +37,20 @@ public class NodeHelper {
     public interface BindCallback {
         /**
          * 调用层返回是否已经处理了解绑操作
+         * <p>
+         * 调用层需要自行通知管理员账号，解绑该设备的所有绑定关系，否则将会报错：设备已被绑定。
          *
          * @param subIotId
          * @param subProductKey
          * @param subDeviceName
          * @return true:已处理，正常跳过。
          */
-        Future<Boolean> isUnbindRelation(String subIotId, String subProductKey, String subDeviceName);
+        boolean isUnbindRelation(String subIotId, String subProductKey, String subDeviceName);
 
         /**
          * 失败回调
-         * @param e
-         * NeedUnbindFirstException 绑定节点前，需要确保强制解除设备上所有绑定关系
+         *
+         * @param e NeedUnbindFirstException 绑定节点前，需要确保强制解除设备上所有绑定关系
          */
         void onFailure(Exception e);
 
@@ -212,16 +214,11 @@ public class NodeHelper {
             return;
         }
         if (bindCallback != null) {
-            Future<Boolean> unbindRelation = bindCallback.isUnbindRelation(subIotId, subProductKey, subDeviceName);
-            try {
-                if (unbindRelation.get()) {
-                    bindSubDevice(subProductKey, subDeviceName);
-                } else {
-                    handleFailure(new NeedUnbindFirstException("需要确保强制解除设备上所有绑定关系"));
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                handleFailure(e);
+            boolean unbindRelation = bindCallback.isUnbindRelation(subIotId, subProductKey, subDeviceName);
+            if (unbindRelation) {
+                bindSubDevice(subProductKey, subDeviceName);
+            } else {
+                handleFailure(new NeedUnbindFirstException("需要确保已经解除了设备上所有绑定关系"));
             }
         } else {
             handleFailure(new Exception("BindCallback不能为空"));
