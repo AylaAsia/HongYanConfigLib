@@ -160,12 +160,15 @@ public interface GatewayHelper {
                 @Override
                 public void onLoginSuccess() {
                     Log.d(TAG, "authCodeLogin onLoginSuccess: ");
-                    try {
-                        real_bind();
-                    } catch (Exception e) {
-                        Log.e(TAG, "onSuccess: ", e);
-                        handleFailure(e);
+                    if (!status) {
+                        return;
                     }
+                    runTimer.schedule(new TimerTask() {
+                        @Override
+                        public void run() {
+                            real_bind();
+                        }
+                    }, 2000);
                 }
 
                 @Override

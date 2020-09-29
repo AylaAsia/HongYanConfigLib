@@ -18,7 +18,6 @@ import org.json.JSONObject;
 
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.Future;
 
 import carlwu.top.lib_device_add.exceptions.AlreadyBoundException;
 import carlwu.top.lib_device_add.exceptions.NeedUnbindFirstException;
@@ -113,12 +112,15 @@ public class NodeHelper {
             @Override
             public void onLoginSuccess() {
                 Log.d(TAG, "authCodeLogin onLoginSuccess: ");
-                try {
-                    notifyGatewayOpen();
-                } catch (Exception e) {
-                    Log.e(TAG, "onSuccess: ", e);
-                    handleFailure(e);
+                if (!status) {
+                    return;
                 }
+                runTimer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        notifyGatewayOpen();
+                    }
+                }, 2000);
             }
 
             @Override
@@ -186,12 +188,7 @@ public class NodeHelper {
                     final String subIotId = jsonObject.getString("subIotId");
                     if (status == 0) {
                         MobileChannel.getInstance().unRegisterDownstreamListener(iMobileDownstreamListener);
-                        runTimer.schedule(new TimerTask() {
-                            @Override
-                            public void run() {
-                                unbindRelation(subIotId, subProductKey, subDeviceName);
-                            }
-                        }, 3_000);//等待子设备恢复在线状态，避免6221错误，设备不在线。也可以尝试重试几次的方式
+                        unbindRelation(subIotId, subProductKey, subDeviceName);
                     }
                 } catch (JSONException e) {
                     e.printStackTrace();
@@ -209,14 +206,22 @@ public class NodeHelper {
         MobileChannel.getInstance().registerDownstreamListener(true, iMobileDownstreamListener);
     }
 
-    private void unbindRelation(String subIotId, String subProductKey, String subDeviceName) {
+    private void unbindRelation(final String subIotId, final String subProductKey, final String subDeviceName) {
         if (!status) {
             return;
         }
         if (bindCallback != null) {
             boolean unbindRelation = bindCallback.isUnbindRelation(subIotId, subProductKey, subDeviceName);
+            if (!status) {
+                return;
+            }
             if (unbindRelation) {
-                bindSubDevice(subProductKey, subDeviceName);
+                runTimer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        bindSubDevice(subProductKey, subDeviceName);
+                    }
+                }, 3_000);//等待子设备恢复在线状态，避免6221错误，设备不在线。也可以尝试重试几次的方式
             } else {
                 handleFailure(new NeedUnbindFirstException("需要确保已经解除了设备上所有绑定关系"));
             }
