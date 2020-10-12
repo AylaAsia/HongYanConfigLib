@@ -56,6 +56,8 @@ public interface GatewayHelper {
                                 Map<String, String> bean = new HashMap<>();
                                 bean.put("productKey", deviceInfo.productKey);
                                 bean.put("deviceName", deviceInfo.deviceName);
+                                bean.put("iotId", deviceInfo.iotId);
+                                bean.put("regIotId", deviceInfo.regIotId);
                                 data.add(bean);
                             }
                             callback.onDeviceFound(discoveryType.getType(), data);
