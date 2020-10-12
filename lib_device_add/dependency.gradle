@@ -22,7 +22,6 @@ dependencies {
     api 'com.aliyun.iot.aep.sdk:sdk-framework:0.1.7.5'
     implementation 'com.aliyun.ams:alicloud-android-utdid:1.1.5.3'
     implementation 'com.aliyun.alink.linksdk:api-client-biz:1.0.3'
-    implementation 'com.aliyun.iot.aep.page:rn:0.3.6.1'
     implementation 'com.aliyun.iot.aep.sdk:connectchannel:0.1.5'
     implementation 'com.aliyun.iot.aep.sdk:iot-credential:0.0.2.9'
     implementation 'com.aliyun.iot.sdk:account-oa-ui:0.1.8.2'
