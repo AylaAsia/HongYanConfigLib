@@ -69,8 +69,12 @@ public class NodeHelper {
      * @param SubNode_ProductKey 允许接入网关的子设备产品标识符
      */
     public void startBind(final String authCode, String Gateway_IotId, String SubNode_ProductKey, int time_second) {
+        if (status) {
+            throw new RuntimeException("流程进行中，不可重复startBind。");
+        }
         Log.d(TAG, "start: ");
         status = true;
+        isCloseGateway = false;
         this.authCode = authCode;
         this.Gateway_IotId = Gateway_IotId;
         this.SubNode_ProductKey = SubNode_ProductKey;
@@ -94,9 +98,8 @@ public class NodeHelper {
         Log.d(TAG, "stop: ");
         status = false;
         this.bindCallback = null;
-        if (iMobileDownstreamListener != null) {
-            MobileChannel.getInstance().unRegisterDownstreamListener(iMobileDownstreamListener);
-        }
+        cancelWaitForSubDevice();
+        notifyGatewayClose();
         if (runTimer != null) {
             runTimer.cancel();
         }
@@ -115,6 +118,7 @@ public class NodeHelper {
                 if (!status) {
                     return;
                 }
+                waitForSubDevice();
                 runTimer.schedule(new TimerTask() {
                     @Override
                     public void run() {
@@ -131,10 +135,19 @@ public class NodeHelper {
         });
     }
 
+    /**
+     * 通知网关允许添加子设备
+     */
     private void notifyGatewayOpen() {
         if (!status) {
             return;
         }
+        /**
+         * time
+         * 0：网关一直允许添加子设备
+         * 0～65535：网关允许添加子设备的时间长度，单位为秒
+         * 65535：网关不允许添加子设备
+         */
         IoTRequestBuilder builder = new IoTRequestBuilder()
                 .setPath("/thing/gateway/permit")
                 .setApiVersion("1.0.2")
@@ -150,16 +163,16 @@ public class NodeHelper {
         ioTAPIClient.send(request, new IoTCallback() {
             @Override
             public void onFailure(IoTRequest ioTRequest, Exception e) {
-                Log.e(TAG, "enableGatewayFind onFailure: ", e);
+                Log.e(TAG, "notifyGatewayOpen onFailure: ", e);
                 handleFailure(new Exception("通知网关进入发现节点模式失败", e));
             }
 
             @Override
             public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
-                Log.d(TAG, "enableGatewayFind onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
+                Log.d(TAG, "notifyGatewayOpen onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
                 final int code = ioTResponse.getCode();
                 if (code == 200) {
-                    waitForSubDevice();
+//                    waitForSubDevice();
                 } else {
                     handleFailure(new Exception("网关无法进入发现节点模式，code=" + code + " data=" + ioTResponse.getLocalizedMsg()));
                 }
@@ -169,7 +182,11 @@ public class NodeHelper {
 
     private IMobileDownstreamListener iMobileDownstreamListener;
 
+    /**
+     * 等待发现子设备
+     */
     private void waitForSubDevice() {
+        Log.d(TAG, "waitForSubDevice: ");
         if (!status) {
             return;
         }
@@ -187,7 +204,8 @@ public class NodeHelper {
                     final String subDeviceName = jsonObject.getString("subDeviceName");
                     final String subIotId = jsonObject.getString("subIotId");
                     if (status == 0) {
-                        MobileChannel.getInstance().unRegisterDownstreamListener(iMobileDownstreamListener);
+                        cancelWaitForSubDevice();
+                        notifyGatewayClose();
                         unbindRelation(subIotId, subProductKey, subDeviceName);
                     }
                 } catch (JSONException e) {
@@ -206,6 +224,63 @@ public class NodeHelper {
         MobileChannel.getInstance().registerDownstreamListener(true, iMobileDownstreamListener);
     }
 
+    private void cancelWaitForSubDevice() {
+        if (iMobileDownstreamListener != null) {
+            Log.d(TAG, "cancelWaitForSubDevice: ");
+            MobileChannel.getInstance().unRegisterDownstreamListener(iMobileDownstreamListener);
+        }
+        iMobileDownstreamListener = null;
+    }
+
+    private boolean isCloseGateway = false;//标记是否已经通知网关不允许发现子节点
+
+    /**
+     * 通知网关不允许添加子设备
+     */
+    private void notifyGatewayClose() {
+        if (isCloseGateway) {
+            return;
+        }
+        Log.d(TAG, "notifyGatewayClose: ");
+        /**
+         * time
+         * 0：网关一直允许添加子设备
+         * 0～65535：网关允许添加子设备的时间长度，单位为秒
+         * 65535：网关不允许添加子设备
+         */
+        IoTRequestBuilder builder = new IoTRequestBuilder()
+                .setPath("/thing/gateway/permit")
+                .setApiVersion("1.0.2")
+                .setAuthType("iotAuth")
+                .addParam("iotId", Gateway_IotId)
+//                .addParam("productKey", SubNode_ProductKey)
+                .addParam("time", 65535);
+
+        IoTRequest request = builder.build();
+
+        IoTAPIClient ioTAPIClient = new IoTAPIClientFactory().getClient();
+
+        ioTAPIClient.send(request, new IoTCallback() {
+            @Override
+            public void onFailure(IoTRequest ioTRequest, Exception e) {
+                Log.e(TAG, "notifyGatewayClose onFailure: ", e);
+            }
+
+            @Override
+            public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
+                Log.d(TAG, "notifyGatewayClose onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
+            }
+        });
+        isCloseGateway = true;
+    }
+
+    /**
+     * 通知管理权限解绑设备的所有绑定关系。
+     *
+     * @param subIotId
+     * @param subProductKey
+     * @param subDeviceName
+     */
     private void unbindRelation(final String subIotId, final String subProductKey, final String subDeviceName) {
         if (!status) {
             return;
@@ -216,12 +291,7 @@ public class NodeHelper {
                 return;
             }
             if (unbindRelation) {
-                runTimer.schedule(new TimerTask() {
-                    @Override
-                    public void run() {
-                        bindSubDevice(subProductKey, subDeviceName);
-                    }
-                }, 3_000);//等待子设备恢复在线状态，避免6221错误，设备不在线。也可以尝试重试几次的方式
+                bindSubDevice(subProductKey, subDeviceName);
             } else {
                 handleFailure(new NeedUnbindFirstException("需要确保已经解除了设备上所有绑定关系"));
             }
@@ -274,6 +344,14 @@ public class NodeHelper {
                     } catch (JSONException e) {
                         e.printStackTrace();
                     }
+                } else if (code == 6221) {//设备不在线，请检查设备运行状态
+                    Log.d(TAG, "bindSubDevice onResponse: 设备不在线，1秒后重试");
+                    runTimer.schedule(new TimerTask() {
+                        @Override
+                        public void run() {
+                            bindSubDevice(productKey, deviceName);
+                        }
+                    }, 1000);
                 } else {
                     if (code == 2064) {//已被绑定错误
                         handleFailure(new AlreadyBoundException(ioTResponse.getLocalizedMsg()));

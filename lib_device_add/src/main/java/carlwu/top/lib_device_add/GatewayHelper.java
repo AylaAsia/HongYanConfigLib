@@ -97,6 +97,10 @@ public interface GatewayHelper {
          * @param time_second
          */
         public void startBind(final String authCode, final String productKey, final String deviceName, int time_second) {
+            if (status) {
+                throw new RuntimeException("流程进行中，不可重复startBind。");
+            }
+            Log.d(TAG, "startBind: ");
             status = true;
             this.authCode = authCode;
             this.productKey = productKey;
@@ -134,6 +138,7 @@ public interface GatewayHelper {
          * 结束网关绑定
          */
         public void stopBind() {
+            Log.d(TAG, "stopBind: ");
             status = false;
             application = null;
             callback = null;
