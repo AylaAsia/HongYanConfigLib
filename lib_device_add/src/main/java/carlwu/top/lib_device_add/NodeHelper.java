@@ -72,9 +72,11 @@ public class NodeHelper {
         if (status) {
             throw new RuntimeException("流程进行中，不可重复startBind。");
         }
+        if(time_second<20 || time_second>200){
+            throw new RuntimeException("time_second 需要 >=20 <=200");
+        }
         Log.d(TAG, "start: ");
         status = true;
-        isCloseGateway = false;
         this.authCode = authCode;
         this.Gateway_IotId = Gateway_IotId;
         this.SubNode_ProductKey = SubNode_ProductKey;
@@ -99,7 +101,6 @@ public class NodeHelper {
         status = false;
         this.bindCallback = null;
         cancelWaitForSubDevice();
-        notifyGatewayClose();
         if (runTimer != null) {
             runTimer.cancel();
         }
@@ -144,9 +145,7 @@ public class NodeHelper {
         }
         /**
          * time
-         * 0：网关一直允许添加子设备
-         * 0～65535：网关允许添加子设备的时间长度，单位为秒
-         * 65535：网关不允许添加子设备
+         * 建议值 20-200 ，网关会在超时时间到了后再退出配网模式
          */
         IoTRequestBuilder builder = new IoTRequestBuilder()
                 .setPath("/thing/gateway/permit")
@@ -205,7 +204,6 @@ public class NodeHelper {
                     final String subIotId = jsonObject.getString("subIotId");
                     if (status == 0) {
                         cancelWaitForSubDevice();
-                        notifyGatewayClose();
                         unbindRelation(subIotId, subProductKey, subDeviceName);
                     }
                 } catch (JSONException e) {
@@ -230,48 +228,6 @@ public class NodeHelper {
             MobileChannel.getInstance().unRegisterDownstreamListener(iMobileDownstreamListener);
         }
         iMobileDownstreamListener = null;
-    }
-
-    private boolean isCloseGateway = false;//标记是否已经通知网关不允许发现子节点
-
-    /**
-     * 通知网关不允许添加子设备
-     */
-    private void notifyGatewayClose() {
-        if (isCloseGateway) {
-            return;
-        }
-        Log.d(TAG, "notifyGatewayClose: ");
-        /**
-         * time
-         * 0：网关一直允许添加子设备
-         * 0～65535：网关允许添加子设备的时间长度，单位为秒
-         * 65535：网关不允许添加子设备
-         */
-        IoTRequestBuilder builder = new IoTRequestBuilder()
-                .setPath("/thing/gateway/permit")
-                .setApiVersion("1.0.2")
-                .setAuthType("iotAuth")
-                .addParam("iotId", Gateway_IotId)
-//                .addParam("productKey", SubNode_ProductKey)
-                .addParam("time", 65535);
-
-        IoTRequest request = builder.build();
-
-        IoTAPIClient ioTAPIClient = new IoTAPIClientFactory().getClient();
-
-        ioTAPIClient.send(request, new IoTCallback() {
-            @Override
-            public void onFailure(IoTRequest ioTRequest, Exception e) {
-                Log.e(TAG, "notifyGatewayClose onFailure: ", e);
-            }
-
-            @Override
-            public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
-                Log.d(TAG, "notifyGatewayClose onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
-            }
-        });
-        isCloseGateway = true;
     }
 
     /**
