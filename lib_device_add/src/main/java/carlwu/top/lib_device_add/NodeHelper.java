@@ -72,7 +72,7 @@ public class NodeHelper {
         if (status) {
             throw new RuntimeException("流程进行中，不可重复startBind。");
         }
-        if(time_second<20 || time_second>200){
+        if (time_second < 20 || time_second > 200) {
             throw new RuntimeException("time_second 需要 >=20 <=200");
         }
         Log.d(TAG, "start: ");
@@ -119,7 +119,6 @@ public class NodeHelper {
                 if (!status) {
                     return;
                 }
-                waitForSubDevice();
                 runTimer.schedule(new TimerTask() {
                     @Override
                     public void run() {
@@ -171,7 +170,7 @@ public class NodeHelper {
                 Log.d(TAG, "notifyGatewayOpen onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
                 final int code = ioTResponse.getCode();
                 if (code == 200) {
-//                    waitForSubDevice();
+                    waitForSubDevice();
                 } else {
                     handleFailure(new Exception("网关无法进入发现节点模式，code=" + code + " data=" + ioTResponse.getLocalizedMsg()));
                 }
@@ -185,10 +184,10 @@ public class NodeHelper {
      * 等待发现子设备
      */
     private void waitForSubDevice() {
-        Log.d(TAG, "waitForSubDevice: ");
         if (!status) {
             return;
         }
+        Log.d(TAG, "waitForSubDevice: ");
         iMobileDownstreamListener = new IMobileDownstreamListener() {
             @Override
             public void onCommand(String s, String s1) {
