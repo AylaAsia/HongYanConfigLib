@@ -217,7 +217,7 @@ public interface GatewayHelper {
                         try {
                             String iotId = ((JSONObject) ioTResponse.getData()).getString("iotId");
                             if (callback != null) {
-                                callback.onBindSuccess(iotId);
+                                callback.onBindSuccess(iotId,productKey,deviceName);
                             }
                             stopBind();
                         } catch (JSONException e) {
@@ -242,6 +242,6 @@ public interface GatewayHelper {
     public interface BindCallback {
         void onFailure(Exception e);
 
-        void onBindSuccess(String iotId);
+        void onBindSuccess(String iotId, String productKey, String deviceName);
     }
 }

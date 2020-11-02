@@ -2,7 +2,9 @@ package carlwu.top.lib_device_add;
 
 import android.util.Log;
 
+import com.aliyun.alink.linksdk.channel.core.base.AError;
 import com.aliyun.alink.linksdk.channel.mobile.api.IMobileDownstreamListener;
+import com.aliyun.alink.linksdk.channel.mobile.api.IMobileRequestListener;
 import com.aliyun.alink.linksdk.channel.mobile.api.MobileChannel;
 import com.aliyun.iot.aep.sdk.apiclient.IoTAPIClient;
 import com.aliyun.iot.aep.sdk.apiclient.IoTAPIClientFactory;
@@ -11,6 +13,7 @@ import com.aliyun.iot.aep.sdk.apiclient.callback.IoTResponse;
 import com.aliyun.iot.aep.sdk.apiclient.request.IoTRequest;
 import com.aliyun.iot.aep.sdk.apiclient.request.IoTRequestBuilder;
 import com.aliyun.iot.aep.sdk.login.ILoginCallback;
+import com.aliyun.iot.aep.sdk.login.ILogoutCallback;
 import com.aliyun.iot.aep.sdk.login.LoginBusiness;
 
 import org.json.JSONException;
@@ -22,12 +25,20 @@ import java.util.TimerTask;
 import carlwu.top.lib_device_add.exceptions.AlreadyBoundException;
 import carlwu.top.lib_device_add.exceptions.NeedUnbindFirstException;
 
+/**
+ * #### 1.登录  LoginBusiness.authCodeLogin
+ * #### 2.订阅监听 MobileChannel.getInstance().registerDownstreamListener
+ * #### 3.通知网关允许发现子设备  /thing/gateway/permit
+ * #### 4.取消监听 MobileChannel.getInstance().unRegisterDownstreamListener
+ * #### 5.解绑长连接通道 MobileChannel.getInstance().unBindAccount();
+ * #### 6.登出 LoginBusiness.logout();
+ */
 public class NodeHelper {
     private BindCallback bindCallback;
     private Timer runTimer;
     private TimerTask timeoutTimerTask;
-    private String TAG = "NodeHelper";
-    private boolean status;//工作状态
+    private final String TAG = "NodeHelper";
+    private volatile boolean status;//工作状态
 
     public NodeHelper(BindCallback bindCallback) {
         this.bindCallback = bindCallback;
@@ -53,7 +64,7 @@ public class NodeHelper {
          */
         void onFailure(Exception e);
 
-        void onSuccess(String iotId);
+        void onSuccess(String subIotId, String subProductKey, String subDeviceName);
     }
 
     private int time_second = 60;//超时时间
@@ -68,7 +79,7 @@ public class NodeHelper {
      * @param Gateway_IotId      网关设备iotId
      * @param SubNode_ProductKey 允许接入网关的子设备产品标识符
      */
-    public void startBind(final String authCode, String Gateway_IotId, String SubNode_ProductKey, int time_second) {
+    public void startBind(final String authCode, String Gateway_IotId, String SubNode_ProductKey, int time_second) throws InterruptedException {
         if (status) {
             throw new RuntimeException("流程进行中，不可重复startBind。");
         }
@@ -90,13 +101,16 @@ public class NodeHelper {
             }
         };
         runTimer.schedule(timeoutTimerTask, time_second * 1000);
-        authCodeLogin();
+        unBindChannel();
     }
 
     /**
      * 结束节点绑定
      */
     public void stopBind() {
+        if (!status) {
+            return;
+        }
         Log.d(TAG, "stop: ");
         status = false;
         this.bindCallback = null;
@@ -106,6 +120,7 @@ public class NodeHelper {
         }
         runTimer = null;
         timeoutTimerTask = null;
+        unBindChannel();
     }
 
     private void authCodeLogin() {
@@ -122,7 +137,7 @@ public class NodeHelper {
                 runTimer.schedule(new TimerTask() {
                     @Override
                     public void run() {
-                        notifyGatewayOpen();
+                        waitForSubDevice();
                     }
                 }, 2000);
             }
@@ -131,49 +146,6 @@ public class NodeHelper {
             public void onLoginFailed(int i, String s) {
                 Log.e(TAG, "authCodeLogin onLoginFailed: " + s);
                 handleFailure(new Exception("authCode登录失败" + s));
-            }
-        });
-    }
-
-    /**
-     * 通知网关允许添加子设备
-     */
-    private void notifyGatewayOpen() {
-        if (!status) {
-            return;
-        }
-        /**
-         * time
-         * 建议值 20-200 ，网关会在超时时间到了后再退出配网模式
-         */
-        IoTRequestBuilder builder = new IoTRequestBuilder()
-                .setPath("/thing/gateway/permit")
-                .setApiVersion("1.0.2")
-                .setAuthType("iotAuth")
-                .addParam("iotId", Gateway_IotId)
-                .addParam("productKey", SubNode_ProductKey)
-                .addParam("time", time_second);
-
-        IoTRequest request = builder.build();
-
-        IoTAPIClient ioTAPIClient = new IoTAPIClientFactory().getClient();
-
-        ioTAPIClient.send(request, new IoTCallback() {
-            @Override
-            public void onFailure(IoTRequest ioTRequest, Exception e) {
-                Log.e(TAG, "notifyGatewayOpen onFailure: ", e);
-                handleFailure(new Exception("通知网关进入发现节点模式失败", e));
-            }
-
-            @Override
-            public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
-                Log.d(TAG, "notifyGatewayOpen onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
-                final int code = ioTResponse.getCode();
-                if (code == 200) {
-                    waitForSubDevice();
-                } else {
-                    handleFailure(new Exception("网关无法进入发现节点模式，code=" + code + " data=" + ioTResponse.getLocalizedMsg()));
-                }
             }
         });
     }
@@ -219,6 +191,7 @@ public class NodeHelper {
             }
         };
         MobileChannel.getInstance().registerDownstreamListener(true, iMobileDownstreamListener);
+        notifyGatewayOpen();
     }
 
     private void cancelWaitForSubDevice() {
@@ -227,6 +200,50 @@ public class NodeHelper {
             MobileChannel.getInstance().unRegisterDownstreamListener(iMobileDownstreamListener);
         }
         iMobileDownstreamListener = null;
+    }
+
+
+    /**
+     * 通知网关允许添加子设备
+     */
+    private void notifyGatewayOpen() {
+        if (!status) {
+            return;
+        }
+        /**
+         * time
+         * 建议值 20-200 ，网关会在超时时间到了后再退出配网模式
+         */
+        IoTRequestBuilder builder = new IoTRequestBuilder()
+                .setPath("/thing/gateway/permit")
+                .setApiVersion("1.0.2")
+                .setAuthType("iotAuth")
+                .addParam("iotId", Gateway_IotId)
+                .addParam("productKey", SubNode_ProductKey)
+                .addParam("time", time_second);
+
+        IoTRequest request = builder.build();
+
+        IoTAPIClient ioTAPIClient = new IoTAPIClientFactory().getClient();
+
+        ioTAPIClient.send(request, new IoTCallback() {
+            @Override
+            public void onFailure(IoTRequest ioTRequest, Exception e) {
+                Log.e(TAG, "notifyGatewayOpen onFailure: ", e);
+                handleFailure(new Exception("通知网关进入发现节点模式失败", e));
+            }
+
+            @Override
+            public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
+                Log.d(TAG, "notifyGatewayOpen onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
+                final int code = ioTResponse.getCode();
+                if (code == 200) {
+//                    waitForSubDevice();
+                } else {
+                    handleFailure(new Exception("网关无法进入发现节点模式，code=" + code + " data=" + ioTResponse.getLocalizedMsg()));
+                }
+            }
+        });
     }
 
     /**
@@ -285,7 +302,7 @@ public class NodeHelper {
 
             @Override
             public void onResponse(IoTRequest ioTRequest, IoTResponse ioTResponse) {
-                Log.d(TAG, "bindSubDevice onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg());
+                Log.d(TAG, "bindSubDevice onResponse: " + ioTResponse.getCode() + " " + ioTResponse.getLocalizedMsg() + " " + ioTResponse.getData());
                 if (!status) {
                     return;
                 }
@@ -294,11 +311,12 @@ public class NodeHelper {
                     try {
                         String iotId = ((JSONObject) ioTResponse.getData()).getString("iotId");
                         if (bindCallback != null) {
-                            bindCallback.onSuccess(iotId);
+                            bindCallback.onSuccess(iotId, productKey, deviceName);
                         }
                     } catch (JSONException e) {
                         e.printStackTrace();
                     }
+                    stopBind();
                 } else if (code == 6221) {//设备不在线，请检查设备运行状态
                     Log.d(TAG, "bindSubDevice onResponse: 设备不在线，1秒后重试");
                     runTimer.schedule(new TimerTask() {
@@ -316,6 +334,46 @@ public class NodeHelper {
                 }
             }
         });
+    }
+
+    private void unBindChannel() {
+        MobileChannel.getInstance().unBindAccount(new IMobileRequestListener() {
+            @Override
+            public void onSuccess(String s) {
+                Log.d(TAG, "unBindChannel onSuccess: " + s);
+                logout();
+            }
+
+            @Override
+            public void onFailure(AError aError) {
+                Log.d(TAG, "unBindChannel onFailure: " + aError);
+                logout();
+            }
+        });
+    }
+
+    private void logout() {
+        LoginBusiness.logout(new ILogoutCallback() {
+            @Override
+            public void onLogoutSuccess() {
+                Log.d(TAG, "logout onLogoutSuccess: ");
+                cleanUserStateSuccess();
+            }
+
+            @Override
+            public void onLogoutFailed(int i, String s) {
+                Log.d(TAG, "logout onLogoutFailed: " + i + " " + s);
+                cleanUserStateSuccess();
+            }
+        });
+    }
+
+    private void cleanUserStateSuccess() {
+        if (!status) {
+            return;
+        }
+        Log.d(TAG, "cleanUserStateSuccess: ");
+        authCodeLogin();
     }
 
     private void handleFailure(Exception e) {
