@@ -154,6 +154,7 @@ public class NodeHelper {
 
     /**
      * 等待发现子设备
+     * status表示子设备的注册结果，可取值包括，0：添加成功，1：子设备注册成功，但设备已被其它网关绑定，2：子设备注册失败。
      */
     private void waitForSubDevice() {
         if (!status) {
