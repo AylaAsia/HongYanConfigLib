@@ -88,6 +88,7 @@ public class NodeHelper {
         }
         Log.d(TAG, "start: ");
         status = true;
+        isStatus1Error = false;
         this.authCode = authCode;
         this.Gateway_IotId = Gateway_IotId;
         this.SubNode_ProductKey = SubNode_ProductKey;
@@ -97,7 +98,13 @@ public class NodeHelper {
         timeoutTimerTask = new TimerTask() {
             @Override
             public void run() {
-                handleFailure(new Exception("超时失败"));
+                Exception exception;
+                if (isStatus1Error) {
+                    exception = new AlreadyBoundException("子设备在别的网关被绑定，无法通知阿里云解除拓扑关系！");
+                } else {
+                    exception = new Exception("超时失败");
+                }
+                handleFailure(exception);
             }
         };
         runTimer.schedule(timeoutTimerTask, time_second * 1000);
@@ -113,6 +120,7 @@ public class NodeHelper {
         }
         Log.d(TAG, "stop: ");
         status = false;
+        isStatus1Error = false;
         this.bindCallback = null;
         cancelWaitForSubDevice();
         if (runTimer != null) {
@@ -152,6 +160,8 @@ public class NodeHelper {
 
     private IMobileDownstreamListener iMobileDownstreamListener;
 
+    private boolean isStatus1Error = false;//标记可能是status = 1 的错误，子设备在别的网关被绑定了，网关离线，无法通知阿里云你解除拓扑关系，无法抢占绑定子设备。
+
     /**
      * 等待发现子设备
      * status表示子设备的注册结果，可取值包括，0：添加成功，1：子设备注册成功，但设备已被其它网关绑定，2：子设备注册失败。
@@ -174,6 +184,9 @@ public class NodeHelper {
                     final String subProductKey = jsonObject.getString("subProductKey");
                     final String subDeviceName = jsonObject.getString("subDeviceName");
                     final String subIotId = jsonObject.getString("subIotId");
+                    if (status == 1) {
+                        isStatus1Error = true;
+                    }
                     if (status == 0) {
                         cancelWaitForSubDevice();
                         unbindRelation(subIotId, subProductKey, subDeviceName);
@@ -202,7 +215,6 @@ public class NodeHelper {
         }
         iMobileDownstreamListener = null;
     }
-
 
     /**
      * 通知网关允许添加子设备
