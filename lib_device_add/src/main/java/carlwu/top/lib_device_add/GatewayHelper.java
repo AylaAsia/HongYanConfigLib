@@ -227,6 +227,14 @@ public interface GatewayHelper {
                         if (code == 2064) {//已被绑定错误
                             handleFailure(new AlreadyBoundException(ioTResponse.getLocalizedMsg()));
                         } else {
+                            /*
+                            Q：设备绑定失败，返回 6608 "token not found"
+                            A： token not found 是指云端在处理绑定请求的时候发现手机携带的token在云端找不到，导致绑定失败；
+                            可能原因有以下几个方面：
+                            （1）发现之后或者配网成功之后，等待很久之后才点击绑定（开始使用），token的最长时效为3分钟，超过3分钟就会失效；
+                            （2）这个token已经被用过一次，也会立即失效；如两台手机同时发现设备，一台手机点击了绑定，另外一台则会遇到这个问题；还有一种常见是第一次点击返回需要授权，再次点击的时候返回 token not found，因为第一次点击的时候云端认为已使用删除了该token；
+                            （3）设备端token没有上报成功；
+                             */
                             handleFailure(new Exception("绑定阶段失败,code=" + ioTResponse.getCode() + " data:" + ioTResponse.getData()));
                         }
                     }
